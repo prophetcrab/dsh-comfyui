@@ -1,6 +1,6 @@
 {
   "name": "dsh-comfyui",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "description": "ComfyUI text-to-image for DeepSeek Harness: a generation panel with two presets (artist-style illustration with 15 looks and Krea 2 style LoRAs, true pixel game assets), Krea 2 Turbo prompt optimization, auto-started local ComfyUI, gallery, and chat tool.",
   "license": "MIT",
   "author": "prophetcrab",

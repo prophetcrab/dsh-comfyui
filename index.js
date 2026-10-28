@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
@@ -638,7 +639,9 @@ export function apply(ctx, config) {
     order: 2375,
     text: 'Images through ComfyUI: image_generate draws with the local ComfyUI (FLUX.1 Krea by default); style "pixel" (or pixel_asset true) renders a true sprite through the pixel refiner, and a reference path switches to the edit workflow. '
       + 'It optimizes the prompt for that model first and returns the picture in the chat. Pass the user\'s idea, '
-      + 'not a translated prompt; the optimizer handles wording. Generations also land in the plugin\'s gallery panel.',
+      + 'not a translated prompt; the optimizer handles wording. Generations also land in the plugin\'s gallery panel. '
+      + 'Companion tools: comfyui_status (server, queue, VRAM), image_list (recent works), image_get (attach one), '
+      + 'comfyui_cancel (stop a job); image_generate accepts reference "last" to chain the previous image.',
   })
 
   ctx.tools.register({
@@ -672,7 +675,7 @@ export function apply(ctx, config) {
         pixel_asset: { type: 'boolean', description: 'Render a game-art pixel sprite instead of a regular image.' },
         asset_size: { type: 'number', enum: PIXEL_TARGETS, description: 'Sprite edge in pixels for pixel_asset mode (32/64/128/256).' },
         palette_colors: { type: 'number', description: 'Palette size for pixel_asset mode, 2-256 (default 24).' },
-        reference: { type: 'string', description: 'Local path to a reference image: a character/persona sheet or a style reference.' },
+        reference: { type: 'string', description: 'Reference image: a local path, "last" for the newest gallery image (chaining), or a gallery file name.' },
         reference_mode: {
           type: 'string',
           enum: ['identity', 'style'],
@@ -717,7 +720,7 @@ export function apply(ctx, config) {
           ? { target: args?.asset_size ?? 64, colors: args?.palette_colors ?? 24 }
           : undefined,
         reference: typeof args?.reference === 'string' && args.reference !== ''
-          ? { path: args.reference, mode: args?.reference_mode }
+          ? { path: await resolveReferencePath(args.reference), mode: args?.reference_mode }
           : undefined,
         optimize: args?.optimize !== false,
         agent: exec?.agent,
@@ -748,6 +751,220 @@ export function apply(ctx, config) {
         text: lines.join('\n'),
         images: result.attachment === undefined ? [] : [{ attachment: result.attachment }],
       }
+    },
+  })
+
+  /** Human-readable byte size for tool output. */
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    let value = bytes
+    let unit = 0
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024
+      unit += 1
+    }
+    return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
+  }
+
+  /**
+   * Resolve the `reference` argument of image_generate into a local path.
+   * "last" / "previous" reuses the newest gallery entry, a bare name picks a
+   * gallery file, and anything else must be an existing path.
+   * @param reference - raw argument value.
+   * @returns absolute path, or '' when no reference was requested.
+   */
+  async function resolveReferencePath(reference) {
+    const text = typeof reference === 'string' ? reference.trim() : ''
+    if (text === '') return ''
+    const entries = await gallery.list(options.galleryDir)
+    if (text === 'last' || text === 'previous' || text === 'latest') {
+      const newest = entries.find(entry => typeof entry?.name === 'string' && entry.name !== '')
+      if (newest === undefined) throw new Error('图库里还没有作品，无法引用上一张')
+      return join(options.galleryDir, newest.name)
+    }
+    if (existsSync(text)) return text
+    const named = entries.find(entry => entry?.name === text || entry?.id === text)
+    if (named !== undefined) return join(options.galleryDir, named.name)
+    throw new Error(`找不到参考图：${text}（可传 "last" 引用上一张，或图库文件名）`)
+  }
+
+  /** Read ComfyUI's queue snapshot. */
+  async function queueSnapshot() {
+    const response = await fetch(`${options.url}/queue`, { signal: AbortSignal.timeout(8000) })
+    if (!response.ok) throw new Error(`ComfyUI queue: HTTP ${response.status}`)
+    const body = await response.json()
+    const idsOf = list => (Array.isArray(list) ? list : [])
+      .map(item => (Array.isArray(item) ? item[1] : undefined))
+      .filter(id => typeof id === 'string')
+    return { running: idsOf(body?.queue_running), pending: idsOf(body?.queue_pending) }
+  }
+
+  ctx.tools.register({
+    name: 'comfyui_status',
+    description:
+      'Report the local ComfyUI server: online state, queue length, VRAM per device, available model presets and '
+      + 'gallery size. Pass start true to launch the server when it is offline.',
+    parameters: {
+      type: 'object',
+      properties: {
+        start: { type: 'boolean', description: 'Launch ComfyUI when it is offline.' },
+      },
+      additionalProperties: false,
+    },
+    output: { schema: {}, render: (_args, value) => [{ type: 'text', text: String(value?.text ?? '') }] },
+    execute: async (args) => {
+      let stats = await probe(options.url)
+      let started = false
+      if (stats === null && args?.start === true) {
+        await startServer(options.root, options.url)
+        stats = await probe(options.url)
+        started = true
+      }
+      if (stats === null) {
+        return { text: `ComfyUI 未运行（${options.url}）。生成时会自动启动（autoStart=${options.autoStart}），或传 start: true。` }
+      }
+      const lines = [`ComfyUI 在线：${options.url}${started ? '（刚启动）' : ''}`]
+      const version = stats?.system?.comfyui_version
+      if (typeof version === 'string') lines.push(`版本：${version}`)
+      try {
+        const queue = await queueSnapshot()
+        lines.push(`队列：运行 ${queue.running.length} 个，等待 ${queue.pending.length} 个`)
+        if (queue.running.length > 0) lines.push(`运行中 prompt：${queue.running.join(', ')}`)
+        if (queue.pending.length > 0) lines.push(`等待中 prompt：${queue.pending.join(', ')}`)
+      } catch (error) {
+        lines.push(`队列：读取失败（${error instanceof Error ? error.message : String(error)}）`)
+      }
+      const devices = Array.isArray(stats?.devices) ? stats.devices : []
+      for (const device of devices) {
+        const total = Number(device?.vram_total ?? 0)
+        const free = Number(device?.vram_free ?? 0)
+        if (total > 0) lines.push(`显存 ${device?.name ?? 'device'}：空闲 ${formatBytes(free)} / 共 ${formatBytes(total)}`)
+      }
+      try {
+        const models = availableModels(await capabilities(options.url))
+        const ready = models.filter(preset => preset.available).map(preset => preset.label ?? preset.id)
+        lines.push(`可用模型：${ready.length === 0 ? '无（缺文件）' : ready.join('、')}`)
+      } catch {
+        // capabilities can fail while the server warms up; not fatal for a status report
+      }
+      const entries = await gallery.list(options.galleryDir)
+      lines.push(`图库：${entries.length} 张（${options.galleryDir}）`)
+      return { text: lines.join('\n') }
+    },
+  })
+
+  ctx.tools.register({
+    name: 'image_list',
+    description: 'List recent generations from the ComfyUI gallery: file name, size, seed and prompt, newest first. '
+      + 'Use the name with image_get, or pass it as reference to image_generate.',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'How many entries to return, 1-100 (default 20).' },
+      },
+      additionalProperties: false,
+    },
+    output: { schema: {}, render: (_args, value) => [{ type: 'text', text: String(value?.text ?? '') }] },
+    execute: async (args) => {
+      const limit = Math.min(100, Math.max(1, Number(args?.limit ?? 20)))
+      const entries = (await gallery.list(options.galleryDir)).slice(0, limit)
+      if (entries.length === 0) return { text: `图库是空的（${options.galleryDir}）` }
+      const lines = [`最近 ${entries.length} 张（共 ${(await gallery.list(options.galleryDir)).length} 张）：`]
+      entries.forEach((entry, index) => {
+        const size = entry?.width !== undefined && entry?.height !== undefined ? `${entry.width}×${entry.height}` : '—'
+        const prompt = typeof entry?.prompt === 'string' ? entry.prompt.replace(/\s+/gu, ' ') : ''
+        const clipped = prompt.length > 70 ? `${prompt.slice(0, 70)}…` : prompt
+        const when = typeof entry?.createdAt === 'string' ? ` · ${entry.createdAt}` : ''
+        lines.push(`${index + 1}. ${entry?.name ?? '(unnamed)'} · ${size}${when}${clipped === '' ? '' : ` · ${clipped}`}`)
+      })
+      return { text: lines.join('\n') }
+    },
+  })
+
+  ctx.tools.register({
+    name: 'image_get',
+    description: 'Attach one gallery image to the reply (default: the newest) and return its prompt metadata and local '
+      + 'path, so it can be reused as a reference for image_generate.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Gallery file name. Omit for the newest image.' },
+        latest: { type: 'boolean', description: 'Return the newest image (default when name is omitted).' },
+      },
+      additionalProperties: false,
+    },
+    output: {
+      schema: {},
+      render: (_args, value) => {
+        const blocks = [{ type: 'text', text: String(value?.text ?? '') }]
+        for (const image of Array.isArray(value?.images) ? value.images : []) {
+          if (image?.attachment !== undefined && image?.attachment !== null) blocks.push({ type: 'image', attachment: image.attachment })
+        }
+        return blocks
+      },
+    },
+    execute: async (args) => {
+      const entries = await gallery.list(options.galleryDir)
+      if (entries.length === 0) throw new Error('图库是空的')
+      const wanted = typeof args?.name === 'string' ? args.name.trim() : ''
+      const entry = wanted === ''
+        ? entries[0]
+        : entries.find(item => item?.name === wanted || item?.id === wanted) ?? { name: wanted }
+      const name = typeof entry?.name === 'string' ? entry.name : ''
+      if (name === '') throw new Error('找不到这张图')
+      const bytes = await gallery.read(options.galleryDir, name)
+      if (bytes === null) throw new Error(`图库文件不存在：${name}`)
+      const mediaType = /\.jpe?g$/iu.test(name) ? 'image/jpeg' : /\.webp$/iu.test(name) ? 'image/webp' : 'image/png'
+      let attachment
+      const store = ctx.get('attachments')
+      if (store !== undefined && typeof store?.saveImage === 'function') {
+        attachment = await store.saveImage({ data: new Uint8Array(bytes), mediaType, name: 'comfyui' })
+      }
+      const lines = [`图片：${name}（${formatBytes(bytes.length)}）`]
+      if (typeof entry?.prompt === 'string') lines.push(`Prompt: ${entry.prompt}`)
+      if (typeof entry?.optimized === 'string' && entry.optimized !== entry.prompt) lines.push(`Optimized: ${entry.optimized}`)
+      if (entry?.width !== undefined) lines.push(`尺寸：${entry.width}×${entry.height} · seed ${entry.seed ?? '—'} · ${entry.steps ?? '—'} 步`)
+      lines.push(`本地路径：${join(options.galleryDir, name)}`)
+      if (attachment === undefined) lines.push('（附件服务不可用，未能在聊天里显示图片）')
+      return { text: lines.join('\n'), images: attachment === undefined ? [] : [{ attachment }] }
+    },
+  })
+
+  ctx.tools.register({
+    name: 'comfyui_cancel',
+    description: 'Cancel the running/queued ComfyUI generation of this plugin, or one specific prompt id. '
+      + 'Use comfyui_status to see the queue first.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt_id: { type: 'string', description: 'Cancel this prompt id specifically; omit to cancel every job started by this plugin.' },
+      },
+      additionalProperties: false,
+    },
+    output: { schema: {}, render: (_args, value) => [{ type: 'text', text: String(value?.text ?? '') }] },
+    execute: async (args) => {
+      const explicit = typeof args?.prompt_id === 'string' ? args.prompt_id.trim() : ''
+      const targets = []
+      if (explicit !== '') {
+        targets.push({ job: [...jobs.values()].find(job => job?.promptId === explicit), promptId: explicit })
+      } else {
+        for (const job of jobs.values()) {
+          if (job?.status !== 'queued' && job?.status !== 'running') continue
+          if (typeof job.promptId === 'string' && job.promptId !== '') targets.push({ job, promptId: job.promptId })
+        }
+      }
+      if (targets.length === 0) return { text: '没有进行中的任务（可用 comfyui_status 查看 ComfyUI 队列）' }
+      for (const target of targets) {
+        await cancelPrompt(options.url, target.promptId).catch(() => {})
+        if (target.job !== undefined) {
+          target.job.status = 'error'
+          target.job.error = '已取消 / cancelled'
+          jobsDirty = true
+        }
+      }
+      void flushJobs()
+      return { text: `已取消 ${targets.length} 个任务：${targets.map(target => target.promptId).join(', ')}` }
     },
   })
 
