@@ -97,10 +97,13 @@ curl -s http://127.0.0.1:8188/object_info/Krea2PixelArtRefiner  | head -c 60
 
 一键下载（跳过已存在的文件，默认走 hf-mirror）：
 
+脚本在**插件仓库**里（不是 ComfyUI 目录），默认写入 `~/tools/ComfyUI`：
+
 ```sh
-cd ~/tools/ComfyUI          # 或在任意目录用 COMFY_ROOT=/path/to/ComfyUI
-./scripts/download-models.sh          # 本仓库的脚本
-./scripts/download-models.sh --check  # 只检查缺什么
+cd ~/project/dsh-comfyui
+./scripts/download-models.sh                       # 下载缺的文件
+./scripts/download-models.sh --check               # 只检查不下载
+COMFY_ROOT=/path/to/ComfyUI ./scripts/download-models.sh   # 自定义 ComfyUI 位置
 ```
 
 手动下载等价的命令：
@@ -127,9 +130,9 @@ curl -fL -o models/vae/qwen_image_vae.safetensors \
 | 插画风格（预设里可选） | 见 `scripts/download-loras.sh` 目录 | 0.2–0.5 GB | 官方 / 社区 |
 
 ```sh
-cd ~/tools/ComfyUI
-./scripts/download-loras.sh            # 二次元四件套，插件「Presets」里直接可选
-./scripts/download-loras.sh all        # 全部风格 LoRA
+cd ~/project/dsh-comfyui
+./scripts/download-loras.sh            # 二次元四件套，面板「画风 LoRA」行直接可选
+./scripts/download-loras.sh all        # 全部十款风格 LoRA
 ```
 
 ---
