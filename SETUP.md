@@ -3,7 +3,7 @@
 这份文档记录 `dsh-comfyui` 在本机跑起来需要的**全部外部依赖**：ComfyUI 本体、自定义节点、模型与 LoRA 文件、插件配置，以及验收命令。按顺序做完即可从零复现当前环境。
 
 - 实测环境：macOS（Apple Silicon，24 GB 统一内存）、Python 3.13.17、ComfyUI **0.43.0**、PyTorch **2.14.1**（MPS）
-- 磁盘占用：ComfyUI + venv 约 **2 GB**，模型约 **15.2 GB**，LoRA 约 **1.8 GB** —— 完整环境合计约 **19 GB**（只装必需模型约 15.5 GB）
+- 磁盘占用：ComfyUI + venv 约 **1.5 GB**，必需模型约 **15.2 GB**，LoRA 约 **5.3 GB**（15 个文件）—— 完整环境合计约 **22 GB**（只装必需模型约 16.5 GB）
 - 显卡：Apple Silicon 走 MPS；FP8 权重在 MPS 上**不可用**（见「已知坑」）
 
 ```
@@ -127,13 +127,17 @@ curl -fL -o models/vae/qwen_image_vae.safetensors \
 | 参考图 · 人设 | `krea2_identity_edit_v1_1_r64.safetensors` | 436 MB | `conradlocke/krea2-identity-edit` |
 | 参考图 · 风格 | `krea2_style_reference.safetensors` | 436 MB | `ostris/krea2_turbo_style_reference` |
 | 像素资产 32/64/128 | `k2-pixel32/64/128.safetensors` | 71 MB × 3 | `e-n-v-y/Krea-2-Pixel-Art` |
-| 插画风格（预设里可选） | 见 `scripts/download-loras.sh` 目录 | 0.2–0.5 GB | 官方 / 社区 |
+| 画风 LoRA（面板 chip 行） | `krea2_{darkbrush,dotmatrix,kidsdrawing,neondrip,rainywindow,retroanime,softwatercolor,sunsetblur,vintagetarot}` + `cel-shaded-daytime-anime-comfy` | 448 MB × 9 + 224 MB | `Comfy-Org/Krea-2` + 社区 celanime |
 
 ```sh
 cd ~/project/dsh-comfyui
-./scripts/download-loras.sh            # 二次元四件套，面板「画风 LoRA」行直接可选
-./scripts/download-loras.sh all        # 全部十款风格 LoRA
+./scripts/download-loras.sh            # 二次元四件套：celanime + retroanime + softwatercolor + darkbrush
+./scripts/download-loras.sh all        # 全部十款风格 LoRA（本机已全装，共 5.3 GB）
 ```
+
+安装后 ComfyUI 无需重启即可列出新文件（`/object_info` 会刷新目录）；面板刷新后对应 chip 变为可选。
+触发词与强度来自 `Comfy-Org/Krea-2` 官方 README（9 款均为 `1.0`），celanime 用社区卡片的触发词；
+插件的「画风 LoRA」行只显示**真实存在**的文件，所以装了哪些就能选哪些。
 
 ---
 

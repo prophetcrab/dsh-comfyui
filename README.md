@@ -150,8 +150,11 @@ files show up as chips (`/object_info` decides), so the row stays honest.
 
 ```sh
 ./scripts/download-loras.sh            # 二次元四件套: celanime + retroanime + softwatercolor + darkbrush
-./scripts/download-loras.sh all        # all ten
+./scripts/download-loras.sh all        # all ten (5.3 GB); the chips row then shows every one
 ```
+
+Trigger words and the 1.0 strength below are checked against the official `Comfy-Org/Krea-2` model card;
+only files that exist in `models/loras` become chips, so an un-downloaded row simply stays hidden.
 
 **Do not** put `krea2_turbo_lora_rank_64_bf16.safetensors` on the Turbo checkpoint: it is the
 Raw→Turbo distillation delta, meant for `krea2_raw` (it rewrites the same capability that Turbo already
