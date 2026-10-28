@@ -23,6 +23,35 @@ traps (FP8 on Apple Silicon, missing OpenCV, slow Hugging Face downloads) — li
 ./scripts/download-loras.sh    # optional style LoRAs
 ```
 
+### Install into a DSH profile
+
+```sh
+cd ~/.dsh/profiles/<profile>
+# 1. install the package (verified form: pnpm add "<name>@file:<absolute path>")
+pnpm add "dsh-comfyui@file:$HOME/project/dsh-comfyui"
+# 2. append the row below to cordis.patch.yml
+# 3. reload it (touch cordis.patch.yml, or restart the app), then refresh the page
+```
+
+The row in `cordis.patch.yml`:
+
+```yaml
+- insert:
+    - id: comfyui
+      name: dsh-comfyui
+```
+
+First start may take a while: the plugin probes `127.0.0.1:8188`, starts
+`<comfyRoot>/run.sh` when nothing answers, then loads ~15 GB of weights on the first job.
+
+### Panel quick tour
+
+Sidebar → **ComfyUI 生图**. Write an idea, optionally press **优化提示词** (rules or model rewrite), pick a
+preset and size, then **生成**. While it renders you get step progress, elapsed time and a **停止** button;
+the panel keeps its draft and in-flight job if you switch pages. Finished images land in the gallery below
+(hover a thumbnail → **删除** removes the file, second click confirms). Chat generations additionally copy
+into `<workspace>/generated/`.
+
 ## Pixel game assets
 
 Pick the **像素游戏资产** preset in the panel (or pass `style: "pixel"` / `pixel_asset: true`) to produce true pixel-art sprites:
@@ -63,9 +92,9 @@ git clone https://github.com/ostris/ComfyUI-Krea2-Ostris-Edit.git custom_nodes/C
 Panel: upload a reference in the **参考图** card, pick 人设 / 风格, then generate. Chat tool:
 `image_generate({ prompt, reference: "/path/to/portrait.png", reference_mode: "identity" })`.
 
-Output size follows the reference image (Kontext scale to ~1MP), so the size picker is disabled while a
-reference is attached. Each generation costs more: the edit LoRA plus vision encoding make a step noticeably
-slower than plain text-to-image on Apple Silicon.
+Output size defaults to **跟随参考图** (Kontext scale to ~1MP); pick a concrete size in the size dropdown to
+override it. Each generation costs more: the edit LoRA plus vision encoding make a step noticeably slower
+than plain text-to-image on Apple Silicon (~50-60 s per step here).
 
 ## Presets
 
@@ -174,25 +203,30 @@ the selected preset (no photographic-realism cues for `pixel`).
         comfyRoot: ~/tools/ComfyUI
         comfyUrl: http://127.0.0.1:8188
         autoStart: true
-        provider: deepseek-account
-        model: deepseek-flash
-        optimize: auto          # auto | llm | rules | off
-        steps: 20               # official Krea template default
-        guidance: 3.5
-        width: 1024
+        provider: deepseek-account  # LLM used ONLY for prompt rewriting
+        model: deepseek-flash       # that LLM's model id (not the image model)
+        optimize: auto              # auto | llm | rules | off
+        defaultModel: krea2-turbo   # image preset; auto-detected, rarely needs setting
+        steps: 8                    # fallback only: the model preset wins
+        guidance: 0                 # fallback only: locked at CFG 1 for Krea 2
+        width: 1024                 # fallback when the request has no valid size
         height: 1024
         saveToWorkspace: true
         workspaceSubdir: generated
-        timeoutMs: 900000
+        timeoutMs: 900000           # per-image deadline
 ```
 
-Model names are auto-detected; override with `unetName`, `clipName`, `clipLName`, `vaeName` if needed.
+`provider` / `model` configure the prompt-rewrite LLM; `defaultModel` picks the image preset. Model files are
+auto-detected from `/object_info`; override with `unetName`, `clipName`, `clipLName`, `vaeName` if needed.
 
 ## Notes
 
-- Apple Silicon renders ~30-45 s per step; a 20-step 1024² image takes several minutes.
-- FLUX.1 Krea [dev] weights are non-commercial.
-- The gallery lives in `<comfyRoot>/dsh-gallery/`; chat generations are also copied to `<workspace>/generated/`.
+- Krea 2 Turbo renders 8 steps at CFG 1 (euler / simple). Measured here, 24 GB M5: ~20 s per step for plain
+  text-to-image (~3 min per 1024² image), ~50-60 s per step with a reference image, ~3 min for a pixel sprite.
+- Krea 2 weights are under the Krea 2 Community License (commercial conditions and a revenue threshold);
+  third-party LoRAs carry their own licenses.
+- The gallery lives in `<comfyRoot>/dsh-gallery/` (plus `gallery.json` and `jobs.json`); chat generations are
+  also copied to `<workspace>/generated/`.
 
 ## Verification
 

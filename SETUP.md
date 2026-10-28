@@ -3,7 +3,7 @@
 这份文档记录 `dsh-comfyui` 在本机跑起来需要的**全部外部依赖**：ComfyUI 本体、自定义节点、模型与 LoRA 文件、插件配置，以及验收命令。按顺序做完即可从零复现当前环境。
 
 - 实测环境：macOS（Apple Silicon，24 GB 统一内存）、Python 3.13.17、ComfyUI **0.43.0**、PyTorch **2.14.1**（MPS）
-- 磁盘占用：ComfyUI + venv 约 **2 GB**，模型与 LoRA 约 **15 GB**（最低可用配置约 15.5 GB，含一个 LoRA）
+- 磁盘占用：ComfyUI + venv 约 **2 GB**，模型约 **15.2 GB**，LoRA 约 **1.8 GB** —— 完整环境合计约 **19 GB**（只装必需模型约 15.5 GB）
 - 显卡：Apple Silicon 走 MPS；FP8 权重在 MPS 上**不可用**（见「已知坑」）
 
 ```
@@ -134,9 +134,16 @@ cd ~/tools/ComfyUI
 
 ---
 
-## 五、插件侧配置
+## 五、插件安装与配置
 
-profile 的 `cordis.patch.yml` 里加一行（或安装时由 `dsh.bundle.patch` 自动插入）：
+插件本身不是 ComfyUI 的一部分，要装进 DSH 的 profile：
+
+```sh
+cd ~/.dsh/profiles/<profile>
+pnpm add "dsh-comfyui@file:$HOME/project/dsh-comfyui"   # 或手动写进 dependencies 再 pnpm install
+```
+
+然后在同目录的 `cordis.patch.yml` 末尾追加：
 
 ```yaml
 - insert:
@@ -146,8 +153,27 @@ profile 的 `cordis.patch.yml` 里加一行（或安装时由 `dsh.bundle.patch`
         comfyRoot: ~/tools/ComfyUI   # 自动启动用（run.sh 所在目录）
         comfyUrl: http://127.0.0.1:8188
         autoStart: true              # 服务没起来时自动拉起
-        timeoutMs: 900000            # 单张图最长等待；Apple Silicon 建议保留
+        provider: deepseek-account   # 仅用于提示词改写
+        model: deepseek-flash        # 该 LLM 的模型名，不是图片模型
+        timeoutMs: 900000            # 单张图最长等待
 ```
+
+改完让 Loader 重新加载（`touch cordis.patch.yml`，或重启应用），**再刷新网页**才会加载客户端面板。
+
+> 配置里有两个容易混淆的 `model`：`model` 是提示词改写用的 LLM 模型名，`defaultModel` 才是图片模型预设
+> （默认 `krea2-turbo`，一般不用填）。`steps` / `guidance` / `width` / `height` 只是兜底值——Krea 2 预设会按
+> 官方模板强制 8 步、CFG 1，面板里也不显示可调的 guidance。
+
+### 功能与依赖对照
+
+| 面板 / 工具能力 | 依赖节点 | 依赖模型或 LoRA |
+|---|---|---|
+| 基础文生图 | ComfyUI-GGUF | `krea2_turbo-Q4_K_M.gguf` + `qwen3vl_4b_bf16` + `qwen_image_vae` |
+| 画师风插画（含 14 个画师 chip） | — | 无（纯提示词） |
+| 画风 LoRA chip 行 | — | `models/loras` 里的官方/社区风格 LoRA（`download-loras.sh`） |
+| 参考图 · 人设 / 风格 | ComfyUI-Krea2-Ostris-Edit | `krea2_identity_edit_v1_1_r64` / `krea2_style_reference` |
+| 像素游戏资产 | ComfyUI-Krea2-Pixel-Art-Refiner（+ OpenCV） | `k2-pixel32/64/128` |
+| 聊天工具 `image_generate` | 同上 | 同上 |
 
 ---
 
@@ -171,8 +197,17 @@ ls -lh models/unet models/text_encoders models/vae | grep -E "gguf|safetensors"
 
 # 4. 插件识别到能力（端口以 DSH 实际监听为准，见应用启动日志或 lsof）
 PORT=$(lsof -nP -iTCP -sTCP:LISTEN | awk '/DeepSeek/ {split($9, a, ":"); print a[2]; exit}')
-curl -s "http://127.0.0.1:$PORT/comfyui/status" | python3 -m json.tool | head -30
-# 期望：online=true；models 里 krea2-turbo 的 available / pixelAvailable / referenceAvailable 均为 true
+curl -s "http://127.0.0.1:$PORT/comfyui/status" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print('online:', d['online'], '| sizes:', len(d['sizes']), '| styles:', [s['id'] for s in d['styles']])
+print('artists:', len(d['artists']), '| defaults:', d['defaults'])
+for m in d['models']:
+    print(m['id'], '| available:', m['available'], '| pixelLoras:', len(m.get('pixelLoras') or []), '| styleLoras:', len(m.get('styleLoras') or []), '| referenceLoras:', len(m.get('referenceLoras') or []))
+"
+# 期望：online=true；sizes=12；styles=[illustration, pixel]；artists=15；
+#      defaults.steps=8, defaults.guidance=0, defaults.guidanceSupported=false；
+#      krea2-turbo: available=true，pixelLoras/styleLoras/referenceLoras 数量与已装 LoRA 一致
 
 # 5. 真的能出图（最小用例，约 3 分钟）
 curl -s -X POST "http://127.0.0.1:$PORT/comfyui/generate" \
@@ -193,6 +228,10 @@ curl -s -X POST "http://127.0.0.1:$PORT/comfyui/generate" \
 | 生成到一半 ComfyUI 退出 | 24 GB 内存吃紧（7 GB 主模型 + 8.3 GB 编码器） | 降低草稿尺寸 / 关闭其它占内存程序；插件会自动重启服务并在 12 秒内判定任务丢失 |
 | 下载只有 100–300 KB/s | 直连 Hugging Face 慢 | 用 `hf-mirror.com`（脚本默认）；`HF_HOST=https://huggingface.co` 可切回 |
 | 首次出图特别慢 | 需要加载 15 GB 权重并预热 | 属正常，之后同模型连续出图会快很多 |
+| 生成到一半提示「任务已丢失」 | ComfyUI 在任务执行中被重启，队列和历史里都没有它了 | 插件约 12 秒内判定并结束；直接重新生成即可 |
+| 参考图上传失败 / `Failed to fetch` | 请求体过大（服务端上限 40 MB）或网络中断 | 面板会自动把参考图压到长边 1536px 再上传；超大原图先手动缩一下 |
+| 画风 LoRA 行里没有想要的 chip | chip 只显示 `models/loras` 里真实存在、且 `/object_info` 能列出的文件 | 先跑 `./scripts/download-loras.sh <id>`，再重启 ComfyUI |
+| 提示词「优化」只得到规则拼接结果 | LLM 改写调用失败（provider / model 配错，或模型不可用）会静默退回 rules | 检查 patch 里的 `provider` / `model`；它们和图片模型无关 |
 
 **参考耗时（本机 24 GB M5）**：8 步 1024² 约 4–5 分钟；像素资产（8 步 + 折叠）约 3 分钟；参考图模式每步约 50–60 秒。
 

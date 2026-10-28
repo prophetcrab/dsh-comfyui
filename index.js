@@ -263,8 +263,9 @@ function resolveOptions(config) {
     root,
     autoStart: config?.autoStart !== false,
     timeoutMs: Math.max(60_000, Number(config?.timeoutMs ?? 900_000)),
-    provider: typeof config?.provider === 'string' && config.provider !== '' ? config.provider : 'deepseek-account',
-    model: typeof config?.model === 'string' && config.model !== '' ? config.model : 'deepseek-flash',
+    // LLM used only for prompt rewriting; never confuse it with the image model id.
+    promptProvider: typeof config?.provider === 'string' && config.provider !== '' ? config.provider : 'deepseek-account',
+    promptModel: typeof config?.model === 'string' && config.model !== '' ? config.model : 'deepseek-flash',
     llmOptimize: config?.llmOptimize !== false,
     optimize: ['auto', 'llm', 'rules', 'off'].includes(config?.optimize) ? config.optimize : 'auto',
     model: typeof config?.defaultModel === 'string' && config.defaultModel !== '' ? config.defaultModel : 'krea2-turbo',
