@@ -636,8 +636,8 @@ export function apply(ctx, config) {
   ctx.systemPrompt.section({
     name: 'tool:comfyui',
     order: 2375,
-    text: 'Images through ComfyUI: image_generate draws with the local ComfyUI (FLUX.1 Krea by default), '
-      + 'optimizes the prompt for that model first, and returns the picture in the chat. Pass the user\'s idea, '
+    text: 'Images through ComfyUI: image_generate draws with the local ComfyUI (FLUX.1 Krea by default); style "pixel" (or pixel_asset true) renders a true sprite through the pixel refiner, and a reference path switches to the edit workflow. '
+      + 'It optimizes the prompt for that model first and returns the picture in the chat. Pass the user\'s idea, '
       + 'not a translated prompt; the optimizer handles wording. Generations also land in the plugin\'s gallery panel.',
   })
 
@@ -645,8 +645,9 @@ export function apply(ctx, config) {
     name: 'image_generate',
     description:
       'Generate an image with the local ComfyUI (FLUX.1 Krea). The prompt is optimized for that model unless '
-      + 'optimize is false. The picture is returned in the chat, saved to the gallery, and copied into the '
-      + 'workspace generated/ folder.',
+      + 'optimize is false. Three workflows are reachable: plain text-to-image, the pixel-asset refiner '
+      + '(style "pixel" or pixel_asset true), and the reference/edit path (reference + reference_mode). '
+      + 'The picture is returned in the chat, saved to the gallery, and copied into the workspace generated/ folder.',
     parameters: {
       type: 'object',
       properties: {
@@ -655,7 +656,7 @@ export function apply(ctx, config) {
         steps: { type: 'number', description: 'Sampling steps, 1-60. Default 20.' },
         seed: { type: 'number', description: 'Fixed seed for reproduction; omit for random.' },
         guidance: { type: 'number', description: 'Flux guidance, default 3.5.' },
-        style: { type: 'string', enum: STYLES.map(style => style.id), description: 'Preset: artist-style illustration, or pixel game asset.' },
+        style: { type: 'string', enum: STYLES.map(style => style.id), description: 'Preset: artist-style illustration, or pixel game asset. "pixel" renders through the two-stage pixel refiner unless pixel_asset is false.' },
         model: { type: 'string', enum: MODEL_PRESETS.map(preset => preset.id), description: 'Which installed model set to render with.' },
         artist: {
           type: 'string',
@@ -710,7 +711,9 @@ export function apply(ctx, config) {
         lora: args?.lora,
         loraStrength: args?.lora_strength,
         model: args?.model,
-        pixel: args?.pixel_asset === true
+        // The UI preset 像素游戏资产 sets pixel mode; mirror that for agents so
+        // style:'pixel' alone reaches the two-stage refiner workflow.
+        pixel: args?.pixel_asset === true || (args?.style === 'pixel' && args?.pixel_asset !== false)
           ? { target: args?.asset_size ?? 64, colors: args?.palette_colors ?? 24 }
           : undefined,
         reference: typeof args?.reference === 'string' && args.reference !== ''
