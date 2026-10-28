@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ComfyUI">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#151b2b"/>
+  <rect x="13" y="15" width="38" height="30" rx="5" fill="none" stroke="#f0a020" stroke-width="2.4"/>
+  <circle cx="24" cy="26" r="4" fill="#7ee0a8"/>
+  <path d="M15 43l11-12 8 8 6-6 9 10z" fill="#f0a020" opacity="0.9"/>
+  <path d="M22 51h20" stroke="#7ee0a8" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

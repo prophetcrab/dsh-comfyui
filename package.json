@@ -1,0 +1,55 @@
+{
+  "name": "dsh-comfyui",
+  "version": "0.7.0",
+  "description": "ComfyUI text-to-image for DeepSeek Harness: a generation panel with two presets (artist-style illustration with 15 looks and Krea 2 style LoRAs, true pixel game assets), Krea 2 Turbo prompt optimization, auto-started local ComfyUI, gallery, and chat tool.",
+  "license": "MIT",
+  "author": "prophetcrab",
+  "homepage": "https://github.com/prophetcrab/dsh-comfyui#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prophetcrab/dsh-comfyui.git"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "comfyui",
+    "flux",
+    "krea",
+    "text-to-image"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "scripts"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "scripts": {
+    "smoke": "node scripts/smoke-panel.mjs"
+  }
+}

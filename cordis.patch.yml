@@ -1,0 +1,4 @@
+# ComfyUI text-to-image: generation panel, prompt optimizer, chat tool.
+- insert:
+    - id: comfyui
+      name: dsh-comfyui
