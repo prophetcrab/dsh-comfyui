@@ -11,6 +11,18 @@ Local ComfyUI text-to-image for [DeepSeek Harness](https://github.com/deepseek-a
   regular `UNETLoader`/`CLIPLoader` installs both work. The bundled preset is **Krea 2 Turbo** (GGUF Q4 +
   Qwen3-VL text encoder + Qwen-Image VAE).
 
+## Environment
+
+The plugin drives a **local ComfyUI**; nothing is bundled. A full checklist — ComfyUI install, the three
+custom nodes, the Krea 2 model files, the LoRAs each feature needs, verification commands and known
+traps (FP8 on Apple Silicon, missing OpenCV, slow Hugging Face downloads) — lives in
+[SETUP.md](SETUP.md). Short version:
+
+```sh
+./scripts/download-models.sh   # 7.0 GB GGUF + 8.3 GB text encoder + VAE
+./scripts/download-loras.sh    # optional style LoRAs
+```
+
 ## Pixel game assets
 
 Pick the **像素游戏资产** preset in the panel (or pass `style: "pixel"` / `pixel_asset: true`) to produce true pixel-art sprites:
